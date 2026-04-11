@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
@@ -43,9 +44,10 @@ func main() {
 	handler := http.StripPrefix("/app", http.FileServer(directory))
 	mux.Handle("/app/", apiCfg.middlewareMetricsInc(handler))
 	mux.HandleFunc("GET /api/healthz", handlerReadiness)
+	mux.HandleFunc("POST /api/users", apiCfg.createUser)
 	mux.HandleFunc("GET /admin/metrics", apiCfg.handlerMetrics)
 	mux.HandleFunc("POST /admin/reset", apiCfg.handlerReset)
-	mux.HandleFunc("POST /api/validate_chirp", handlerValidateChirp)
+	mux.HandleFunc("POST /api/chirps", apiCfg.createChirp)
 	log.Println("Starting server on :8080")
 	if err := srv.ListenAndServe(); err != nil {
 		log.Fatalf("Server failed to start: %v", err)
@@ -83,23 +85,80 @@ func (cfg *apiConfig) handlerMetrics(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(html))
 }
 
+func (cfg *apiConfig) createUser(w http.ResponseWriter, r *http.Request) {
+	type request struct {
+		Email string `json:"email"`
+	}
+	type response struct {
+		ID        int32     `json:"id"`
+		CreatedAt time.Time `json:"created_at"`
+		UpdatedAt time.Time `json:"updated_at"`
+		Email     string    `json:"email"`
+	}
+	type errorResponse struct {
+		Error string `json:"error"`
+	}
+
+	var req request
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(errorResponse{Error: "Invalid request body"})
+		return
+	}
+
+	user, err := cfg.db.CreateUser(r.Context(), req.Email)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(errorResponse{Error: "Failed to create user"})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(response{
+		ID:        user.ID,
+		CreatedAt: user.CreatedAt.Time,
+		UpdatedAt: user.UpdatedAt.Time,
+		Email:     user.Email,
+	})
+}
+
 func (cfg *apiConfig) handlerReset(w http.ResponseWriter, r *http.Request) {
+	platform := os.Getenv("PLATFORM")
+	if platform != "dev" {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusForbidden)
+		fmt.Fprint(w, "Forbidden: Reset is only allowed in dev environment")
+		return
+	}
 	cfg.fileserverHits.Store(0)
+	deleteUser := r.Context()
+	if err := cfg.db.DeleteUsers(deleteUser); err != nil {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprint(w, "Failed to reset users")
+		return
+	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprintf(w, "Hits: %d", cfg.fileserverHits.Load())
 }
 
-func handlerValidateChirp(w http.ResponseWriter, r *http.Request) {
-
+func (cfg *apiConfig) createChirp(w http.ResponseWriter, r *http.Request) {
 	type parameters struct {
-		Body string `json:"body"`
+		Body   string `json:"body"`
+		UserID int32  `json:"user_id"`
 	}
 	type errorResponse struct {
 		Error string `json:"error"`
 	}
 	type response struct {
-		CleanedBody string `json:"cleaned_body"`
+		ID        string `json:"id"`
+		CreatedAt string `json:"created_at"`
+		UpdatedAt string `json:"updated_at"`
+		Body      string `json:"body"`
+		UserID    int32  `json:"user_id"`
 	}
 
 	decoder := json.NewDecoder(r.Body)
@@ -127,7 +186,24 @@ func handlerValidateChirp(w http.ResponseWriter, r *http.Request) {
 	}
 	cleanedBody := strings.Join(words, " ")
 
+	chirp, err := cfg.db.CreateChirp(r.Context(), database.CreateChirpParams{
+		Body:   cleanedBody,
+		UserID: sql.NullInt32{Int32: params.UserID, Valid: true},
+	})
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(errorResponse{Error: "Failed to create chirp"})
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(response{CleanedBody: cleanedBody})
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(response{
+		ID:        chirp.ID.String(),
+		CreatedAt: chirp.CreatedAt.Format(time.RFC3339),
+		UpdatedAt: chirp.UpdatedAt.Format(time.RFC3339),
+		Body:      chirp.Body,
+		UserID:    chirp.UserID.Int32,
+	})
 }

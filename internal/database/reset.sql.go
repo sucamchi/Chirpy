@@ -17,3 +17,13 @@ func (q *Queries) DeleteUsers(ctx context.Context) error {
 	_, err := q.db.ExecContext(ctx, deleteUsers)
 	return err
 }
+
+const ensureUsersHashedPassword = `-- name: EnsureUsersHashedPassword :exec
+ALTER TABLE users
+ADD COLUMN IF NOT EXISTS hashed_password TEXT NOT NULL DEFAULT 'unset'
+`
+
+func (q *Queries) EnsureUsersHashedPassword(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, ensureUsersHashedPassword)
+	return err
+}

@@ -174,6 +174,18 @@ func TestGetChirpsRejectsInvalidAuthorID(t *testing.T) {
 	}
 }
 
+func TestGetChirpsRejectsInvalidSort(t *testing.T) {
+	cfg := &apiConfig{}
+	req := httptest.NewRequest(http.MethodGet, "/api/chirps?sort=sideways", nil)
+	recorder := httptest.NewRecorder()
+
+	cfg.getChirps(recorder, req)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("getChirps() status = %d, want %d", recorder.Code, http.StatusBadRequest)
+	}
+}
+
 func TestDeleteChirpRequiresValidToken(t *testing.T) {
 	tests := []struct {
 		name          string

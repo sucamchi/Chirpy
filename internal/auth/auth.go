@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"net/http"
 	"strings"
@@ -26,6 +28,15 @@ func HashPassword(password string) (string, error) {
 
 func CheckPasswordHash(password, hash string) (bool, error) {
 	return argon2id.ComparePasswordAndHash(password, hash)
+}
+
+// MakeRefreshToken returns 32 random bytes (256 bits) as a 64 character hex string.
+// crypto/rand, not math/rand: refresh tokens are passwords in effect, so they
+// must not be predictable.
+func MakeRefreshToken() string {
+	randomBytes := make([]byte, 32)
+	rand.Read(randomBytes)
+	return hex.EncodeToString(randomBytes)
 }
 
 func MakeJWT(userID uuid.UUID, tokenSecret string, expiresIn time.Duration) (string, error) {

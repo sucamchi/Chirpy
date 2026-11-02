@@ -612,7 +612,29 @@ func (cfg *apiConfig) getChirps(w http.ResponseWriter, r *http.Request) {
 		Error string `json:"error"`
 	}
 
-	chirps, err := cfg.db.GetChirps(r.Context())
+	var (
+		chirps []database.Chirp
+		err    error
+	)
+	authorIDs, hasAuthorID := r.URL.Query()["author_id"]
+	if !hasAuthorID {
+		chirps, err = cfg.db.GetChirps(r.Context())
+	} else {
+		if len(authorIDs) != 1 {
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(errorResponse{Error: "Invalid author_id"})
+			return
+		}
+		userID, parseErr := uuid.Parse(authorIDs[0])
+		if parseErr != nil {
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(errorResponse{Error: "Invalid author_id"})
+			return
+		}
+		chirps, err = cfg.db.GetChirpsByAuthor(r.Context(), userID)
+	}
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.WriteHeader(http.StatusInternalServerError)

@@ -158,6 +158,22 @@ func TestPolkaWebhookRejectsInvalidAPIKey(t *testing.T) {
 	}
 }
 
+func TestGetChirpsRejectsInvalidAuthorID(t *testing.T) {
+	for _, query := range []string{"author_id=not-a-uuid", "author_id=", "author_id=one&author_id=two"} {
+		t.Run(query, func(t *testing.T) {
+			cfg := &apiConfig{}
+			req := httptest.NewRequest(http.MethodGet, "/api/chirps?"+query, nil)
+			recorder := httptest.NewRecorder()
+
+			cfg.getChirps(recorder, req)
+
+			if recorder.Code != http.StatusBadRequest {
+				t.Fatalf("getChirps() status = %d, want %d", recorder.Code, http.StatusBadRequest)
+			}
+		})
+	}
+}
+
 func TestDeleteChirpRequiresValidToken(t *testing.T) {
 	tests := []struct {
 		name          string

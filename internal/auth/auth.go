@@ -2,6 +2,8 @@ package auth
 
 import (
 	"errors"
+	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -9,6 +11,14 @@ import (
 	"github.com/alexedwards/argon2id"
 	"github.com/golang-jwt/jwt/v5"
 )
+
+func GetBearerToken(headers http.Header) (string, error) {
+	fields := strings.Fields(headers.Get("Authorization"))
+	if len(fields) != 2 || !strings.EqualFold(fields[0], "Bearer") {
+		return "", errors.New("invalid or missing Authorization header")
+	}
+	return fields[1], nil
+}
 
 func HashPassword(password string) (string, error) {
 	return argon2id.CreateHash(password, argon2id.DefaultParams)

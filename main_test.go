@@ -73,8 +73,9 @@ func TestUpdateUserRequiresValidBearerToken(t *testing.T) {
 
 func TestPolkaWebhookIgnoresOtherEvents(t *testing.T) {
 	db := &webhookDB{}
-	cfg := &apiConfig{db: database.New(db)}
+	cfg := &apiConfig{db: database.New(db), polkaKey: "test-api-key"}
 	req := httptest.NewRequest(http.MethodPost, "/api/polka/webhooks", strings.NewReader(`{"event":"payment.failed"}`))
+	req.Header.Set("Authorization", "ApiKey test-api-key")
 	recorder := httptest.NewRecorder()
 
 	cfg.handlePolkaWebhook(recorder, req)
@@ -103,9 +104,10 @@ func TestPolkaWebhookUpgradesUser(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			db := &webhookDB{rowsAffected: tt.rowsAffected}
-			cfg := &apiConfig{db: database.New(db)}
+			cfg := &apiConfig{db: database.New(db), polkaKey: "test-api-key"}
 			body := `{"event":"user.upgraded","data":{"user_id":"` + uuid.NewString() + `"}}`
 			req := httptest.NewRequest(http.MethodPost, "/api/polka/webhooks", strings.NewReader(body))
+			req.Header.Set("Authorization", "ApiKey test-api-key")
 			recorder := httptest.NewRecorder()
 
 			cfg.handlePolkaWebhook(recorder, req)
@@ -118,6 +120,39 @@ func TestPolkaWebhookUpgradesUser(t *testing.T) {
 			}
 			if db.execCalls != 1 {
 				t.Errorf("database called %d times, want 1", db.execCalls)
+			}
+		})
+	}
+}
+
+func TestPolkaWebhookRejectsInvalidAPIKey(t *testing.T) {
+	tests := []struct {
+		name          string
+		authorization string
+	}{
+		{name: "missing key"},
+		{name: "wrong key", authorization: "ApiKey wrong-key"},
+		{name: "wrong scheme", authorization: "Bearer test-api-key"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db := &webhookDB{rowsAffected: 1}
+			cfg := &apiConfig{db: database.New(db), polkaKey: "test-api-key"}
+			body := `{"event":"user.upgraded","data":{"user_id":"` + uuid.NewString() + `"}}`
+			req := httptest.NewRequest(http.MethodPost, "/api/polka/webhooks", strings.NewReader(body))
+			if tt.authorization != "" {
+				req.Header.Set("Authorization", tt.authorization)
+			}
+			recorder := httptest.NewRecorder()
+
+			cfg.handlePolkaWebhook(recorder, req)
+
+			if recorder.Code != http.StatusUnauthorized {
+				t.Fatalf("handlePolkaWebhook() status = %d, want %d", recorder.Code, http.StatusUnauthorized)
+			}
+			if db.execCalls != 0 {
+				t.Errorf("database called %d times for unauthorized request, want 0", db.execCalls)
 			}
 		})
 	}

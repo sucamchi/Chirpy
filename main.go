@@ -35,9 +35,13 @@ func main() {
 	apiCfg := &apiConfig{
 		db:        dbQueries,
 		jwtSecret: os.Getenv("JWT_SECRET"),
+		polkaKey:  os.Getenv("POLKA_KEY"),
 	}
 	if apiCfg.jwtSecret == "" {
 		log.Fatal("JWT_SECRET not set in environment")
+	}
+	if apiCfg.polkaKey == "" {
+		log.Fatal("POLKA_KEY not set in environment")
 	}
 
 	mux := http.NewServeMux()
@@ -79,6 +83,7 @@ type apiConfig struct {
 	fileserverHits atomic.Int32
 	db             *database.Queries
 	jwtSecret      string
+	polkaKey       string
 }
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -233,6 +238,12 @@ func (cfg *apiConfig) handlePolkaWebhook(w http.ResponseWriter, r *http.Request)
 	}
 	type errorResponse struct {
 		Error string `json:"error"`
+	}
+
+	apiKey, err := auth.GetAPIKey(r.Header)
+	if err != nil || apiKey != cfg.polkaKey {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
 	}
 
 	var req webhookRequest

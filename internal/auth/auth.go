@@ -22,6 +22,14 @@ func GetBearerToken(headers http.Header) (string, error) {
 	return fields[1], nil
 }
 
+func GetAPIKey(headers http.Header) (string, error) {
+	fields := strings.Fields(headers.Get("Authorization"))
+	if len(fields) != 2 || !strings.EqualFold(fields[0], "ApiKey") {
+		return "", errors.New("invalid or missing Authorization header")
+	}
+	return fields[1], nil
+}
+
 func HashPassword(password string) (string, error) {
 	return argon2id.CreateHash(password, argon2id.DefaultParams)
 }

@@ -45,6 +45,44 @@ func TestGetBearerTokenRejectsMissingOrInvalidHeader(t *testing.T) {
 	}
 }
 
+func TestGetAPIKey(t *testing.T) {
+	headers := http.Header{}
+	headers.Set("Authorization", "  ApiKey   test-api-key  ")
+
+	got, err := GetAPIKey(headers)
+	if err != nil {
+		t.Fatalf("GetAPIKey() error = %v", err)
+	}
+	if got != "test-api-key" {
+		t.Errorf("GetAPIKey() = %q, want %q", got, "test-api-key")
+	}
+}
+
+func TestGetAPIKeyRejectsMissingOrInvalidHeader(t *testing.T) {
+	tests := []struct {
+		name   string
+		header string
+	}{
+		{name: "missing"},
+		{name: "missing key", header: "ApiKey"},
+		{name: "wrong scheme", header: "Bearer credentials"},
+		{name: "extra fields", header: "ApiKey test-api-key extra"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			headers := http.Header{}
+			if tt.header != "" {
+				headers.Set("Authorization", tt.header)
+			}
+
+			if _, err := GetAPIKey(headers); err == nil {
+				t.Fatal("GetAPIKey() error = nil, want an error")
+			}
+		})
+	}
+}
+
 func TestMakeJWTAndValidateJWT(t *testing.T) {
 	userID := uuid.New()
 	secret := "test-secret"

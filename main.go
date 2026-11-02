@@ -52,6 +52,7 @@ func main() {
 	mux.HandleFunc("GET /api/healthz", handlerReadiness)
 	mux.HandleFunc("POST /api/users", apiCfg.createUser)
 	mux.HandleFunc("PUT /api/users", apiCfg.updateUser)
+	mux.HandleFunc("POST /api/polka/webhooks", apiCfg.handlePolkaWebhook)
 	mux.HandleFunc("POST /api/login", apiCfg.loginUser)
 	mux.HandleFunc("POST /api/refresh", apiCfg.refreshAccessToken)
 	mux.HandleFunc("POST /api/revoke", apiCfg.revokeRefreshToken)
@@ -105,10 +106,11 @@ func (cfg *apiConfig) createUser(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 	type response struct {
-		ID        uuid.UUID `json:"id"`
-		CreatedAt time.Time `json:"created_at"`
-		UpdatedAt time.Time `json:"updated_at"`
-		Email     string    `json:"email"`
+		ID          uuid.UUID `json:"id"`
+		CreatedAt   time.Time `json:"created_at"`
+		UpdatedAt   time.Time `json:"updated_at"`
+		Email       string    `json:"email"`
+		IsChirpyRed bool      `json:"is_chirpy_red"`
 	}
 	type errorResponse struct {
 		Error string `json:"error"`
@@ -143,10 +145,11 @@ func (cfg *apiConfig) createUser(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(response{
-		ID:        user.ID,
-		CreatedAt: user.CreatedAt,
-		UpdatedAt: user.UpdatedAt,
-		Email:     user.Email,
+		ID:          user.ID,
+		CreatedAt:   user.CreatedAt,
+		UpdatedAt:   user.UpdatedAt,
+		Email:       user.Email,
+		IsChirpyRed: user.IsChirpyRed,
 	})
 }
 
@@ -156,10 +159,11 @@ func (cfg *apiConfig) updateUser(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 	type response struct {
-		ID        uuid.UUID `json:"id"`
-		CreatedAt time.Time `json:"created_at"`
-		UpdatedAt time.Time `json:"updated_at"`
-		Email     string    `json:"email"`
+		ID          uuid.UUID `json:"id"`
+		CreatedAt   time.Time `json:"created_at"`
+		UpdatedAt   time.Time `json:"updated_at"`
+		Email       string    `json:"email"`
+		IsChirpyRed bool      `json:"is_chirpy_red"`
 	}
 	type errorResponse struct {
 		Error string `json:"error"`
@@ -212,11 +216,54 @@ func (cfg *apiConfig) updateUser(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(response{
-		ID:        user.ID,
-		CreatedAt: user.CreatedAt,
-		UpdatedAt: user.UpdatedAt,
-		Email:     user.Email,
+		ID:          user.ID,
+		CreatedAt:   user.CreatedAt,
+		UpdatedAt:   user.UpdatedAt,
+		Email:       user.Email,
+		IsChirpyRed: user.IsChirpyRed,
 	})
+}
+
+func (cfg *apiConfig) handlePolkaWebhook(w http.ResponseWriter, r *http.Request) {
+	type webhookRequest struct {
+		Event string `json:"event"`
+		Data  struct {
+			UserID string `json:"user_id"`
+		} `json:"data"`
+	}
+	type errorResponse struct {
+		Error string `json:"error"`
+	}
+
+	var req webhookRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.Event != "user.upgraded" {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	userID, err := uuid.Parse(req.Data.UserID)
+	if err != nil {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+
+	rowsAffected, err := cfg.db.UpgradeUserToChirpyRed(r.Context(), userID)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(errorResponse{Error: "Failed to upgrade user"})
+		return
+	}
+	if rowsAffected == 0 {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (cfg *apiConfig) loginUser(w http.ResponseWriter, r *http.Request) {
@@ -229,6 +276,7 @@ func (cfg *apiConfig) loginUser(w http.ResponseWriter, r *http.Request) {
 		CreatedAt    time.Time `json:"created_at"`
 		UpdatedAt    time.Time `json:"updated_at"`
 		Email        string    `json:"email"`
+		IsChirpyRed  bool      `json:"is_chirpy_red"`
 		Token        string    `json:"token"`
 		RefreshToken string    `json:"refresh_token"`
 	}
@@ -292,6 +340,7 @@ func (cfg *apiConfig) loginUser(w http.ResponseWriter, r *http.Request) {
 		CreatedAt:    user.CreatedAt,
 		UpdatedAt:    user.UpdatedAt,
 		Email:        user.Email,
+		IsChirpyRed:  user.IsChirpyRed,
 		Token:        accessToken,
 		RefreshToken: refreshToken,
 	})
